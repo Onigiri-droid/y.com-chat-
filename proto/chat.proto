@@ -1,0 +1,150 @@
+syntax = "proto3";
+
+package chat;
+
+option go_package = "chat-service/proto;chat";
+
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/empty.proto";
+
+service ChatService {
+  rpc CreateChat(CreateChatRequest) returns (ChatResponse);
+  rpc GetChat(GetChatRequest) returns (ChatResponse);
+  rpc UpdateChat(UpdateChatRequest) returns (ChatResponse);
+  rpc DeleteChat(DeleteChatRequest) returns (google.protobuf.Empty);
+  rpc ListUserChats(ListUserChatsRequest) returns (ListChatsResponse);
+  
+  rpc SendMessage(SendMessageRequest) returns (MessageResponse);
+  rpc EditMessage(EditMessageRequest) returns (MessageResponse);
+  rpc DeleteMessage(DeleteMessageRequest) returns (google.protobuf.Empty);
+  rpc GetMessages(GetMessagesRequest) returns (ListMessagesResponse);
+  
+  rpc AddParticipant(AddParticipantRequest) returns (ChatResponse);
+  rpc RemoveParticipant(RemoveParticipantRequest) returns (ChatResponse);
+  rpc ListChatParticipants(ListChatParticipantsRequest) returns (ListParticipantsResponse);
+  
+  rpc SetMessageReaction(SetMessageReactionRequest) returns (MessageResponse);
+  rpc RemoveMessageReaction(RemoveMessageReactionRequest) returns (MessageResponse);
+  
+  rpc MarkMessageAsRead(MarkMessageAsReadRequest) returns (google.protobuf.Empty);
+}
+
+message Chat {
+  string id = 1;
+  string name = 2;
+  string description = 3;
+  string avatar_url = 4;
+  repeated string participants = 5;
+  string creator_id = 6;
+  bool is_group = 7;
+  google.protobuf.Timestamp created_at = 8;
+}
+
+message Message {
+  string id = 1;
+  string chat_id = 2;
+  string sender_id = 3;
+  string content = 4;
+  repeated string file_urls = 5;
+  google.protobuf.Timestamp created_at = 6;
+  google.protobuf.Timestamp updated_at = 7;
+  map<string, string> reactions = 8;
+  repeated string read_by = 9;
+}
+
+message CreateChatRequest {
+  string name = 1;
+  string description = 2;
+  string creator_id = 3;
+  repeated string participants = 4;
+  bool is_group = 5;
+}
+
+message UpdateChatRequest {
+  string chat_id = 1;
+  string name = 2;
+  string description = 3;
+  string avatar_url = 4;
+}
+
+message GetChatRequest {
+  string chat_id = 1;
+}
+
+message DeleteChatRequest {
+  string chat_id = 1;
+}
+
+message ListUserChatsRequest {
+  string user_id = 1;
+}
+
+message ListChatsResponse {
+  repeated Chat chats = 1;
+}
+
+message SendMessageRequest {
+  string chat_id = 1;
+  string sender_id = 2;
+  string content = 3;
+  repeated string file_urls = 4;
+}
+
+message EditMessageRequest {
+  string message_id = 1;
+  string content = 2;
+}
+
+message DeleteMessageRequest {
+  string message_id = 1;
+}
+
+message GetMessagesRequest {
+  string chat_id = 1;
+}
+
+message ListMessagesResponse {
+  repeated Message messages = 1;
+}
+
+message MessageResponse {
+  Message message = 1;
+}
+
+message ChatResponse {
+  Chat chat = 1;
+}
+
+message AddParticipantRequest {
+  string chat_id = 1;
+  string user_id = 2;
+}
+
+message RemoveParticipantRequest {
+  string chat_id = 1;
+  string user_id = 2;
+}
+
+message ListChatParticipantsRequest {
+  string chat_id = 1;
+}
+
+message ListParticipantsResponse {
+  repeated string participants = 1;
+}
+
+message SetMessageReactionRequest {
+  string message_id = 1;
+  string user_id = 2;
+  string reaction = 3;
+}
+
+message RemoveMessageReactionRequest {
+  string message_id = 1;
+  string user_id = 2;
+}
+
+message MarkMessageAsReadRequest {
+  string message_id = 1;
+  string user_id = 2;
+}

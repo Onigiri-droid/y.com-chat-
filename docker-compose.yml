@@ -1,0 +1,56 @@
+version: '3.8'
+
+services:
+  api-service:
+    container_name: api-service
+    build:
+      context: ../api-service
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+      - "50051:50051"
+    depends_on:
+      - postgres-db
+
+  chat-service:
+    container_name: chat-service
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      MONGO_URI: "mongodb://mongo-db:27017/?ssl=false"
+      API_SERVICE_ADDR: "api-service:50051"
+      HTTP_PORT: ":8081"
+      GRPC_PORT: ":50052"
+    ports:
+      - "8081:8081"
+      - "50052:50052"
+    depends_on:
+      - mongo-db
+      - api-service
+
+  postgres-db:
+    container_name: postgres-db
+    image: postgres:17
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: 9028753427
+      POSTGRES_DB: my-users
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+  mongo-db:
+    container_name: mongo-db
+    image: mongo:latest
+    environment:
+      MONGO_INITDB_DATABASE: chat_service
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+
+volumes:
+  postgres-data:
+  mongo-data:
