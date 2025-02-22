@@ -1,10 +1,8 @@
-version: '3.8'
-
 services:
   api-service:
     container_name: api-service
     build:
-      context: ../api-service
+      context: ../y.com
       dockerfile: Dockerfile
     ports:
       - "8080:8080"
@@ -29,9 +27,9 @@ services:
       - mongo-db
       - api-service
 
-  postgres-db:
+  postgres-db: 
     container_name: postgres-db
-    image: postgres:17
+    image: postgres:latest
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: 9028753427

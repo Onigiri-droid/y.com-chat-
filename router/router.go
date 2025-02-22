@@ -1,11 +1,13 @@
 package router
 
 import (
-	"net/http"
-	"chat-service/storage" // Импортируем вашу реализацию хранилища
 	"chat-service/handler"
-	"github.com/gorilla/mux"
+	"chat-service/middleware"
 	authpb "chat-service/proto/auth-service/proto"
+	"chat-service/storage" // Импортируем вашу реализацию хранилища
+	"net/http"
+
+	"github.com/gorilla/mux"
 )
 
 // SetupRoutes устанавливает маршруты для чатов
@@ -14,10 +16,10 @@ func SetupRoutes(storage storage.Storage, authClient authpb.AuthServiceClient) *
 
 	router.HandleFunc("/api/chats", handler.CreateChatHandler(storage)).Methods("POST")
 	router.HandleFunc("/api/chats", handler.GetUserChatsHandler(storage)).Methods("GET")
+	router.Handle("/api/chats/{chatID}", middleware.AuthMiddleware(authClient, handler.UpdateChatHandler(storage))).Methods("PUT")
+	router.HandleFunc("/api/chats/{chatID}", handler.DeleteChatHandler(storage)).Methods("DELETE")
 
-	router.HandleFunc("/api/chats/{chatID}", func(w http.ResponseWriter, r *http.Request) {handler.UpdateChatHandler(w, r, storage)}).Methods("PUT")
 	router.HandleFunc("/api/chats/{chatID}", func(w http.ResponseWriter, r *http.Request) {handler.GetChatByIDHandler(w, r, storage)}).Methods("GET")
-	router.HandleFunc("/api/chats/{chatID}", func(w http.ResponseWriter, r *http.Request) {handler.DeleteChatHandler(w, r, storage)}).Methods("DELETE")
 	router.HandleFunc("/api/chats/{chatID}/avatar", func(w http.ResponseWriter, r *http.Request) {handler.SetChatAvatarHandler(w, r, storage)}).Methods("PUT")
 	router.HandleFunc("/api/chats/{chatID}/participants", func(w http.ResponseWriter, r *http.Request) {handler.AddParticipantHandler(w, r, storage)}).Methods("POST")
 	router.HandleFunc("/api/chats/{chatID}/participants", func(w http.ResponseWriter, r *http.Request) {handler.RemoveParticipantHandler(w, r, storage)}).Methods("DELETE")

@@ -25,69 +25,70 @@ type CreateChatResponse struct {
 
 // CreateChatHandler обрабатывает запросы на создание чатов
 func CreateChatHandler(storage storage.Storage) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		// Проверяем метод запроса
-		if r.Method != http.MethodPost {
-			http.Error(w, "Метод не поддерживается", http.StatusMethodNotAllowed)
-			return
-		}
+    return func(w http.ResponseWriter, r *http.Request) {
+        // Проверяем метод запроса
+        if r.Method != http.MethodPost {
+            http.Error(w, "Метод не поддерживается", http.StatusMethodNotAllowed)
+            return
+        }
 
-		// Извлекаем userID из контекста (добавленного AuthMiddleware)
-		userID, ok := r.Context().Value(middleware.UserIDKey).(int32)
-		if !ok {
-			log.Printf("Не удалось извлечь userID из контекста")
-			http.Error(w, "Не удалось извлечь userID из токена", http.StatusInternalServerError)
-			return
-		}
-		// Используем userID
-		log.Printf("UserID: %d", userID)
+        // Извлекаем userID из контекста (добавленного AuthMiddleware)
+        userID, ok := r.Context().Value(middleware.UserIDKey).(int32)
+        if !ok {
+            log.Printf("Не удалось извлечь userID из контекста")
+            http.Error(w, "Не удалось извлечь userID из токена", http.StatusInternalServerError)
+            return
+        }
 
-		// Читаем тело запроса
-		var req CreateChatRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, "Некорректный запрос", http.StatusBadRequest)
-			return
-		}
+        // Используем userID
+        log.Printf("UserID: %d", userID)
 
-		// Проверяем обязательные поля
-		if req.Name == "" || len(req.Participants) == 0 {
-			http.Error(w, "Отсутствуют обязательные поля", http.StatusBadRequest)
-			return
-		}
+        // Читаем тело запроса
+        var req CreateChatRequest
+        if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+            http.Error(w, "Некорректный запрос", http.StatusBadRequest)
+            return
+        }
 
-		// Конвертация Participants из []string в []int32
-		var memberIDs []int32
-		for _, p := range req.Participants {
-			id, err := strconv.Atoi(p)
-			if err != nil {
-				http.Error(w, "Некорректный формат participant ID", http.StatusBadRequest)
-				return
-			}
-			memberIDs = append(memberIDs, int32(id))
-		}
+        // Проверяем обязательные поля
+        if req.Name == "" || len(req.Participants) == 0 {
+            http.Error(w, "Отсутствуют обязательные поля", http.StatusBadRequest)
+            return
+        }
 
-		// Добавляем userID создателя в список участников
-		memberIDs = append(memberIDs, userID)
+        // Конвертация Participants из []string в []int32
+        var memberIDs []int32
+        for _, p := range req.Participants {
+            id, err := strconv.Atoi(p)
+            if err != nil {
+                http.Error(w, "Некорректный формат participant ID", http.StatusBadRequest)
+                return
+            }
+            memberIDs = append(memberIDs, int32(id))
+        }
 
-		// Для личных чатов (is_group: false) проверяем, что участников ровно два
-		if !req.IsGroup && len(memberIDs) != 2 {
-			http.Error(w, "Личный чат должен содержать ровно двух участников", http.StatusBadRequest)
-			return
-		}
+        // Для личных чатов (is_group: false) проверяем, что участников ровно два
+        if !req.IsGroup && len(memberIDs) != 1 {
+            http.Error(w, "Личный чат должен содержать ровно одного другого участника", http.StatusBadRequest)
+            return
+        }
 
-		// Создаём чат в хранилище
-		chatID, err := storage.CreateChat(r.Context(), req.Name, memberIDs, req.IsGroup, req.Description)
-		if err != nil {
-			http.Error(w, "Не удалось создать чат: "+err.Error(), http.StatusInternalServerError)
-			return
-		}
+        // Добавляем userID создателя в список участников
+        memberIDs = append(memberIDs, userID)
 
-		// Возвращаем успешный ответ
-		resp := CreateChatResponse{ChatID: chatID}
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusCreated)
-		if err := json.NewEncoder(w).Encode(resp); err != nil {
-			http.Error(w, "Не удалось отправить ответ", http.StatusInternalServerError)
-		}
-	}
+        // Создаём чат в хранилище
+        chatID, err := storage.CreateChat(r.Context(), req.Name, memberIDs, req.IsGroup, req.Description, userID)
+        if err != nil {
+            http.Error(w, "Не удалось создать чат: "+err.Error(), http.StatusInternalServerError)
+            return
+        }
+
+        // Возвращаем успешный ответ
+        resp := CreateChatResponse{ChatID: chatID}
+        w.Header().Set("Content-Type", "application/json")
+        w.WriteHeader(http.StatusCreated)
+        if err := json.NewEncoder(w).Encode(resp); err != nil {
+            http.Error(w, "Не удалось отправить ответ", http.StatusInternalServerError)
+        }
+    }
 }

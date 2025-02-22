@@ -1,55 +1,116 @@
 package handler
 
 import (
-	"encoding/json"
-	"net/http"
-	"github.com/gorilla/mux"
-	"chat-service/storage"
+    "encoding/json"
+    "log"
+    "net/http"
+
+    "chat-service/middleware"
+    "chat-service/storage" // Импортируем пакет storage
 )
 
 // UpdateChatRequest представляет данные запроса для обновления чата
 type UpdateChatRequest struct {
-	Name        string `json:"name,omitempty"`        // Новое название чата (опционально)
-	Description string `json:"description,omitempty"` // Новое описание чата (опционально)
+    Name        string `json:"name,omitempty"`        // Новое название чата (опционально)
+    Description string `json:"description,omitempty"` // Новое описание чата (опционально)
 }
 
-// UpdateChatHandler обрабатывает обновление информации о групповом чате
-func UpdateChatHandler(w http.ResponseWriter, r *http.Request, storage storage.Storage) {
-	// Проверяем метод запроса
-	if r.Method != http.MethodPut {
-		http.Error(w, "Метод не поддерживается", http.StatusMethodNotAllowed)
-		return
-	}
+// isUserAllowedToUpdateChat проверяет, имеет ли пользователь права на обновление чата
+func isUserAllowedToUpdateChat(chat *storage.Chat, userID int32) bool {
+    // Если это групповой чат, проверяем, является ли пользователь создателем
+    if chat.IsGroup {
+        return chat.CreatorID == userID
+    }
 
-	// Извлекаем chatID из URL
-	vars := mux.Vars(r)
-	chatID, exists := vars["chatID"]
-	if !exists {
-		http.Error(w, "Не указан chatID", http.StatusBadRequest)
-		return
-	}
+    // Для личных чатов проверяем, является ли пользователь участником
+    for _, memberID := range chat.MemberIDs {
+        if memberID == userID {
+            return true
+        }
+    }
 
-	// Декодируем тело запроса
-	var req UpdateChatRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Некорректный запрос", http.StatusBadRequest)
-		return
-	}
+    return false
+}
 
-	// Проверяем, что хотя бы одно поле для обновления передано
-	if req.Name == "" && req.Description == "" {
-		http.Error(w, "Не указаны данные для обновления", http.StatusBadRequest)
-		return
-	}
+func UpdateChatHandler(storage storage.Storage) http.HandlerFunc {
+    return func(w http.ResponseWriter, r *http.Request) {
+        // Проверяем метод запроса
+        if r.Method != http.MethodPut {
+            http.Error(w, "Метод не поддерживается", http.StatusMethodNotAllowed)
+            return
+        }
 
-	// Вызываем обновление в хранилище
-	err := storage.UpdateChatInfo(r.Context(), chatID, req.Name, req.Description)
-	if err != nil {
-		http.Error(w, "Не удалось обновить чат: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
+        // Извлекаем chatID из URL-параметров
+        chatID := r.URL.Path[len("/api/chats/"):]
+        if chatID == "" {
+            http.Error(w, "Отсутствует обязательный параметр chatID", http.StatusBadRequest)
+            return
+        }
 
-	// Отправляем успешный ответ
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(`{"message": "Чат обновлён"}`))
+        // Извлекаем userID из контекста (добавленного AuthMiddleware)
+        userID, ok := r.Context().Value(middleware.UserIDKey).(int32)
+        if !ok {
+            log.Printf("Не удалось извлечь userID из контекста")
+            http.Error(w, "Не удалось извлечь userID из токена", http.StatusInternalServerError)
+            return
+        }
+
+        // Получаем информацию о чате
+        chat, err := storage.GetChatByID(r.Context(), chatID)
+        if err != nil {
+            switch err.Error() {
+            case "некорректный идентификатор чата":
+                http.Error(w, "Некорректный chatID", http.StatusBadRequest)
+            case "чат не найден":
+                http.Error(w, "Чат не найден", http.StatusNotFound)
+            default:
+                log.Printf("Ошибка получения чата: %v", err)
+                http.Error(w, "Не удалось получить информацию о чате", http.StatusInternalServerError)
+            }
+            return
+        }
+
+        // Проверяем права пользователя на обновление чата
+        if !isUserAllowedToUpdateChat(chat, userID) {
+            http.Error(w, "У вас нет прав на обновление этого чата", http.StatusForbidden)
+            return
+        }
+
+        // Читаем тело запроса
+        var req UpdateChatRequest
+        if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+            http.Error(w, "Некорректный запрос", http.StatusBadRequest)
+            return
+        }
+
+        // Проверяем, что передано хотя бы одно поле для обновления
+        if req.Name == "" && req.Description == "" {
+            http.Error(w, "Должно быть указано хотя бы одно поле для обновления", http.StatusBadRequest)
+            return
+        }
+
+        // Вызываем метод хранилища для обновления чата
+        err = storage.UpdateChatInfo(r.Context(), chatID, req.Name, req.Description)
+        if err != nil {
+            switch err.Error() {
+            case "некорректный chatID":
+                http.Error(w, "Некорректный chatID", http.StatusBadRequest)
+            case "чат не найден или не является групповым":
+                http.Error(w, "Чат не найден или не является групповым", http.StatusNotFound)
+            case "не переданы данные для обновления":
+                http.Error(w, "Не переданы данные для обновления", http.StatusBadRequest)
+            default:
+                log.Printf("Ошибка при обновлении чата: %v", err)
+                http.Error(w, "Не удалось обновить чат", http.StatusInternalServerError)
+            }
+            return
+        }
+
+        // Возвращаем успешный ответ
+        w.Header().Set("Content-Type", "application/json")
+        w.WriteHeader(http.StatusOK)
+        if err := json.NewEncoder(w).Encode(map[string]string{"message": "Chat updated successfully"}); err != nil {
+            http.Error(w, "Не удалось отправить ответ", http.StatusInternalServerError)
+        }
+    }
 }
