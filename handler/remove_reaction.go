@@ -3,52 +3,45 @@ package handler
 import (
 	"encoding/json"
 	"net/http"
-	"github.com/gorilla/mux"
+
+	"chat-service/middleware"
 	"chat-service/storage"
+
+	"github.com/gorilla/mux"
 )
 
-// RemoveReactionRequest представляет данные запроса для удаления реакции
-type RemoveReactionRequest struct {
-	Reaction string `json:"reaction"` // Реакция (например, "👍", "❤️", "😂")
-}
+// RemoveReactionHandler обрабатывает запросы на удаление реакции с сообщения.
+func RemoveReactionHandler(store storage.Storage) http.HandlerFunc {
+    return func(w http.ResponseWriter, r *http.Request) {
+        ctx := r.Context()
 
-// RemoveReactionHandler обрабатывает удаление реакции с сообщения
-func RemoveReactionHandler(w http.ResponseWriter, r *http.Request, storage storage.Storage) {
-	// Проверяем метод запроса
-	if r.Method != http.MethodDelete {
-		http.Error(w, "Метод не поддерживается", http.StatusMethodNotAllowed)
-		return
-	}
+        vars := mux.Vars(r)
+        messageID := vars["messageID"]
 
-	// Извлекаем messageID из URL
-	vars := mux.Vars(r)
-	messageID, exists := vars["messageID"]
-	if !exists {
-		http.Error(w, "Не указан messageID", http.StatusBadRequest)
-		return
-	}
+        var req struct {
+            Reaction string `json:"reaction"`
+        }
+        if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+            http.Error(w, "Неверный формат данных", http.StatusBadRequest)
+            return
+        }
 
-	// Декодируем тело запроса
-	var req RemoveReactionRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Некорректный запрос", http.StatusBadRequest)
-		return
-	}
+        userID, ok := ctx.Value(middleware.UserIDKey).(int32) // Получаем userID из контекста
+        if !ok {
+            http.Error(w, "Не удалось получить userID", http.StatusUnauthorized)
+            return
+        }
 
-	// Проверяем, что reaction передан
-	if req.Reaction == "" {
-		http.Error(w, "Не указана реакция", http.StatusBadRequest)
-		return
-	}
+        if err := store.RemoveReaction(ctx, messageID, req.Reaction, userID); err != nil {
+            http.Error(w, err.Error(), http.StatusBadRequest)
+            return
+        }
 
-	// Вызываем метод хранилища для удаления реакции
-	err := storage.RemoveReaction(r.Context(), messageID, req.Reaction)
-	if err != nil {
-		http.Error(w, "Не удалось удалить реакцию: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	// Отправляем успешный ответ
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(`{"message": "Реакция удалена"}`))
+        w.Header().Set("Content-Type", "application/json")
+        w.WriteHeader(http.StatusOK)
+        json.NewEncoder(w).Encode(map[string]string{
+            "status":   "success",
+            "reaction": req.Reaction,
+        })
+    }
 }

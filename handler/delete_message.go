@@ -1,35 +1,54 @@
 package handler
 
 import (
-	"net/http"
-	"github.com/gorilla/mux"
+	"chat-service/middleware"
 	"chat-service/storage"
+	"encoding/json"
+	"errors"
+	"log"
+	"net/http"
+
+	"github.com/gorilla/mux"
 )
 
-// DeleteMessageHandler обрабатывает удаление сообщения
-func DeleteMessageHandler(w http.ResponseWriter, r *http.Request, storage storage.Storage) {
-	// Проверяем метод запроса
-	if r.Method != http.MethodDelete {
-		http.Error(w, "Метод не поддерживается", http.StatusMethodNotAllowed)
-		return
-	}
+// DeleteMessageHandler обрабатывает запросы на удаление сообщения
+func DeleteMessageHandler(store storage.Storage) http.HandlerFunc {
+    return func(w http.ResponseWriter, r *http.Request) {
+        ctx := r.Context()
 
-	// Извлекаем messageID из URL
-	vars := mux.Vars(r)
-	messageID, exists := vars["messageID"]
-	if !exists {
-		http.Error(w, "Не указан messageID", http.StatusBadRequest)
-		return
-	}
+        // Получение ID сообщения из URL
+        vars := mux.Vars(r)
+        messageID := vars["messageID"]
 
-	// Вызываем метод хранилища для удаления сообщения
-	err := storage.DeleteMessage(r.Context(), messageID)
-	if err != nil {
-		http.Error(w, "Не удалось удалить сообщение: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
+        // Получение userID из контекста
+        userID, ok := r.Context().Value(middleware.UserIDKey).(int32)
+        if !ok {
+            log.Printf("Не удалось извлечь userID из контекста")
+            http.Error(w, "Не удалось извлечь userID", http.StatusInternalServerError)
+            return
+        }
 
-	// Отправляем успешный ответ
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(`{"message": "Сообщение удалено"}`))
+        // Вызов метода для удаления сообщения
+        err := store.DeleteMessage(ctx, messageID, userID)
+        if err != nil {
+            switch {
+            case errors.Is(err, storage.ErrInvalidMessageID):
+                http.Error(w, "Некорректный messageID", http.StatusBadRequest)
+            case errors.Is(err, storage.ErrMessageNotFound):
+                http.Error(w, "Сообщение не найдено", http.StatusNotFound)
+            default:
+                log.Printf("Ошибка при удалении сообщения: %v", err)
+                http.Error(w, "Ошибка при удалении сообщения", http.StatusInternalServerError)
+            }
+            return
+        }
+
+        // Успешный ответ
+        w.Header().Set("Content-Type", "application/json")
+        w.WriteHeader(http.StatusOK)
+        json.NewEncoder(w).Encode(map[string]string{
+            "status":  "success",
+            "message": "Сообщение удалено",
+        })
+    }
 }

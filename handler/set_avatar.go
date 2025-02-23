@@ -1,54 +1,96 @@
 package handler
 
 import (
-	"encoding/json"
-	"net/http"
-	"github.com/gorilla/mux"
 	"chat-service/storage"
+	"encoding/json"
+	"fmt"
+	"io"
+	"log"
+	"net/http"
+	"os"
+	"path/filepath"
+	"time"
+
+	"github.com/gorilla/mux"
 )
 
-// SetChatAvatarRequest представляет данные запроса для установки аватара чата
-type SetChatAvatarRequest struct {
-	Avatar string `json:"avatar"` // Base64-кодированное изображение
-}
+// SetChatAvatarHandler обрабатывает запросы на установку или обновление аватара чата.
+func SetChatAvatarHandler(store storage.Storage) http.HandlerFunc {
+    return func(w http.ResponseWriter, r *http.Request) {
+        ctx := r.Context()
 
-// SetChatAvatarHandler обрабатывает установку аватара чата
-func SetChatAvatarHandler(w http.ResponseWriter, r *http.Request, storage storage.Storage) {
-	// Проверяем метод запроса
-	if r.Method != http.MethodPut {
-		http.Error(w, "Метод не поддерживается", http.StatusMethodNotAllowed)
-		return
-	}
+        // Извлекаем chatID из URL
+        vars := mux.Vars(r)
+        chatID := vars["chatID"]
 
-	// Извлекаем chatID из URL
-	vars := mux.Vars(r)
-	chatID, exists := vars["chatID"]
-	if !exists {
-		http.Error(w, "Не указан chatID", http.StatusBadRequest)
-		return
-	}
+        // Парсим multipart/form-data
+        err := r.ParseMultipartForm(10 << 20) // Ограничение размера файла до 10 МБ
+        if err != nil {
+            log.Printf("Ошибка при парсинге формы: %v", err)
+            http.Error(w, "Невозможно обработать запрос", http.StatusBadRequest)
+            return
+        }
 
-	// Декодируем тело запроса
-	var req SetChatAvatarRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Некорректный запрос", http.StatusBadRequest)
-		return
-	}
+        // Извлекаем файл из формы
+        file, handler, err := r.FormFile("avatar") // Убедитесь, что ключ "avatar" совпадает с ключом в форме
+        if err != nil {
+            log.Printf("Ошибка при извлечении файла: %v", err)
+            http.Error(w, "Не удалось получить файл", http.StatusBadRequest)
+            return
+        }
+        defer file.Close()
 
-	// Проверяем, что поле avatar передано
-	if req.Avatar == "" {
-		http.Error(w, "Не указан аватар", http.StatusBadRequest)
-		return
-	}
+        // Проверяем, что файл был передан
+        if handler == nil {
+            http.Error(w, "Файл не найден", http.StatusBadRequest)
+            return
+        }
 
-	// Вызываем метод хранилища для установки аватара
-	err := storage.SetChatAvatar(r.Context(), chatID, req.Avatar)
-	if err != nil {
-		http.Error(w, "Не удалось установить аватар: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
+        // Создаем уникальное имя для файла
+        ext := filepath.Ext(handler.Filename)
+        fileName := fmt.Sprintf("%d%s", time.Now().UnixNano(), ext)
+        filePath := filepath.Join("uploads", fileName)
 
-	// Отправляем успешный ответ
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(`{"message": "Аватар чата обновлён"}`))
+        // Создаем директорию для загрузки файлов, если она не существует
+        if err := os.MkdirAll("uploads", os.ModePerm); err != nil {
+            log.Printf("Ошибка создания директории для загрузки файлов: %v", err)
+            http.Error(w, "Ошибка сервера", http.StatusInternalServerError)
+            return
+        }
+
+        // Сохраняем файл на диск
+        dst, err := os.Create(filePath)
+        if err != nil {
+            log.Printf("Ошибка создания файла: %v", err)
+            http.Error(w, "Ошибка сервера", http.StatusInternalServerError)
+            return
+        }
+        defer dst.Close()
+
+        _, err = io.Copy(dst, file)
+        if err != nil {
+            log.Printf("Ошибка записи файла: %v", err)
+            http.Error(w, "Ошибка сервера", http.StatusInternalServerError)
+            return
+        }
+
+        // Генерируем URL файла
+        fileURL := fmt.Sprintf("/uploads/%s", fileName)
+
+        // Обновляем аватар чата в базе данных
+        err = store.SetChatAvatar(ctx, chatID, fileURL)
+        if err != nil {
+            log.Printf("Ошибка обновления аватара чата: %v", err)
+            http.Error(w, "Ошибка обновления аватара чата", http.StatusInternalServerError)
+            return
+        }
+
+        // Возвращаем успешный ответ
+        w.Header().Set("Content-Type", "application/json")
+        w.WriteHeader(http.StatusOK)
+        json.NewEncoder(w).Encode(map[string]string{
+            "avatar_url": fileURL,
+            "status":     "success",
+        })
+    }
 }

@@ -1,54 +1,48 @@
 package handler
 
 import (
-	"encoding/json"
-	"net/http"
-	"github.com/gorilla/mux"
 	"chat-service/storage"
+	"encoding/json"
+	"log"
+	"net/http"
+
+	"github.com/gorilla/mux"
 )
 
-// UpdateMessageStatusRequest представляет данные запроса для обновления статуса сообщения
-type UpdateMessageStatusRequest struct {
-	Status string `json:"status"` // Статус сообщения (например, "delivered", "read")
-}
+func UpdateMessageStatusHandler(store storage.Storage) http.HandlerFunc {
+    return func(w http.ResponseWriter, r *http.Request) {
+        ctx := r.Context()
 
-// UpdateMessageStatusHandler обрабатывает обновление статуса сообщения
-func UpdateMessageStatusHandler(w http.ResponseWriter, r *http.Request, storage storage.Storage) {
-	// Проверяем метод запроса
-	if r.Method != http.MethodPost {
-		http.Error(w, "Метод не поддерживается", http.StatusMethodNotAllowed)
-		return
-	}
+        // Извлекаем messageID из URL
+        vars := mux.Vars(r)
+        messageID := vars["messageID"]
+        log.Printf("Получен запрос на обновление статуса для messageID: %s", messageID)
 
-	// Извлекаем messageID из URL
-	vars := mux.Vars(r)
-	messageID, exists := vars["messageID"]
-	if !exists {
-		http.Error(w, "Не указан messageID", http.StatusBadRequest)
-		return
-	}
+        // Декодируем тело запроса
+        var req struct {
+            Status string `json:"status"`
+        }
+        if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+            log.Printf("Ошибка декодирования тела запроса: %v", err)
+            http.Error(w, "Неверный формат данных", http.StatusBadRequest)
+            return
+        }
 
-	// Декодируем тело запроса
-	var req UpdateMessageStatusRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Некорректный запрос", http.StatusBadRequest)
-		return
-	}
+        log.Printf("Получен статус: %s", req.Status)
 
-	// Проверяем, что status передан
-	if req.Status == "" {
-		http.Error(w, "Не указан статус", http.StatusBadRequest)
-		return
-	}
+        // Обновляем статус сообщения
+        if err := store.UpdateMessageStatus(ctx, messageID, req.Status); err != nil {
+            log.Printf("Ошибка обновления статуса: %v", err)
+            http.Error(w, err.Error(), http.StatusBadRequest)
+            return
+        }
 
-	// Вызываем метод хранилища для обновления статуса сообщения
-	err := storage.UpdateMessageStatus(r.Context(), messageID, req.Status)
-	if err != nil {
-		http.Error(w, "Не удалось обновить статус сообщения: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	// Отправляем успешный ответ
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(`{"message": "Статус сообщения обновлён"}`))
+        // Возвращаем успешный ответ
+        w.Header().Set("Content-Type", "application/json")
+        w.WriteHeader(http.StatusOK)
+        json.NewEncoder(w).Encode(map[string]string{
+            "status": "success",
+            "message": "Статус сообщения успешно обновлен",
+        })
+    }
 }

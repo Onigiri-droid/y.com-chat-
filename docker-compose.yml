@@ -2,7 +2,7 @@ services:
   api-service:
     container_name: api-service
     build:
-      context: ../y.com
+      context: ../api-service
       dockerfile: Dockerfile
     ports:
       - "8080:8080"

@@ -1,52 +1,49 @@
 package handler
 
 import (
+	"chat-service/middleware"
 	"chat-service/storage"
-	"fmt"
+	"errors"
+	"log"
 	"net/http"
 
 	"github.com/gorilla/mux"
 )
 
-// LeaveChatHandler обрабатывает запрос на выход пользователя из чата
-func LeaveChatHandler(w http.ResponseWriter, r *http.Request, storage storage.Storage) {
-	// Проверяем метод запроса
-	if r.Method != http.MethodDelete {
-		http.Error(w, "Метод не поддерживается", http.StatusMethodNotAllowed)
-		return
-	}
+// LeaveChatHandler обрабатывает запросы на выход пользователя из чата.
+func LeaveChatHandler(store storage.Storage) http.HandlerFunc {
+    return func(w http.ResponseWriter, r *http.Request) {
+        ctx := r.Context()
 
-	// Извлекаем chatID из URL
-	vars := mux.Vars(r)
-	chatID, exists := vars["chatID"]
-	if !exists {
-		http.Error(w, "Не указан chatID", http.StatusBadRequest)
-		return
-	}
+        // Извлекаем chatID из URL
+        vars := mux.Vars(r)
+        chatID := vars["chatID"]
 
-	// Извлекаем userID из запроса (например, из токена или query-параметра)
-	userID := r.URL.Query().Get("userID")
-	if userID == "" {
-		http.Error(w, "Не указан userID", http.StatusBadRequest)
-		return
-	}
+        // Получаем userID из контекста
+        userID, ok := r.Context().Value(middleware.UserIDKey).(int32)
+        if !ok {
+            log.Printf("Не удалось извлечь userID из контекста")
+            http.Error(w, "Не удалось извлечь userID", http.StatusInternalServerError)
+            return
+        }
 
-	// Преобразуем userID в int32
-	var userIDInt int32
-	_, err := fmt.Sscanf(userID, "%d", &userIDInt)
-	if err != nil {
-		http.Error(w, "Некорректный userID", http.StatusBadRequest)
-		return
-	}
+        // Вызываем метод для выхода из чата
+        err := store.LeaveChat(ctx, chatID, userID)
+        if err != nil {
+            switch {
+            case errors.Is(err, storage.ErrInvalidChatID):
+                http.Error(w, "Некорректный chatID", http.StatusBadRequest)
+            case errors.Is(err, storage.ErrChatNotFound):
+                http.Error(w, "Чат не найден", http.StatusNotFound)
+            default:
+                log.Printf("Ошибка выхода из чата: %v", err)
+                http.Error(w, "Ошибка выхода из чата", http.StatusInternalServerError)
+            }
+            return
+        }
 
-	// Вызываем метод хранилища для выхода пользователя из чата
-	err = storage.LeaveChat(r.Context(), chatID, userIDInt)
-	if err != nil {
-		http.Error(w, "Не удалось выйти из чата: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	// Отправляем успешный ответ
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(`{"message": "Пользователь вышел из чата"}`))
+        // Возвращаем успешный ответ
+        w.WriteHeader(http.StatusOK)
+        w.Write([]byte("Вы успешно покинули чат"))
+    }
 }
